@@ -132,7 +132,7 @@
   .avatar.claude{background:#fce3cd}
   .avatar.etc{background:#e9eef5;font-size:14px;font-weight:700;color:#43607c}
   .avatar.ghost{visibility:hidden}
-  .col{max-width:76%;min-width:0;display:flex;flex-direction:column}
+  .col{max-width:78%;min-width:0;display:flex;flex-direction:column}
   .me .col{align-items:flex-end}
   .name{
     margin:0 0 3px 3px;font-size:11.5px;font-weight:600;color:#42586e;letter-spacing:-.2px;
@@ -144,9 +144,10 @@
     padding:9px 12px;border-radius:14px;border-top-left-radius:4px;
     background:var(--bubble);color:#14191f;
     font-size:14.5px;line-height:1.46;letter-spacing:-.2px;
-    white-space:pre-wrap;word-break:break-word;
+    white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;
     box-shadow:0 1px 1px rgba(16,36,58,.10);
   }
+  .bubble.ko{word-break:keep-all;overflow-wrap:break-word}
   .me .bubble{
     background:var(--yellow);border-top-left-radius:14px;border-top-right-radius:4px;
   }
@@ -511,7 +512,7 @@
       row.className = "row";
 
       var bubble = document.createElement("div");
-      bubble.className = "bubble";
+      bubble.className = "bubble ko";
       bubble.textContent = m.text;
 
       var meta = document.createElement("div");
@@ -612,13 +613,22 @@
   }
 
   function fetchTable(){
-    return fetch(GVIZ_URL + "&_=" + Date.now(), { cache:"no-store", credentials:"omit" })
+    var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 10000) : null;
+    function clear(){ if (timer) { clearTimeout(timer); timer = null; } }
+
+    return fetch(GVIZ_URL + "&_=" + Date.now(), {
+        cache:"no-store",
+        credentials:"omit",
+        signal: ctrl ? ctrl.signal : undefined
+      })
       .then(function(res){
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.text();
       })
-      .then(function(text){ return checkData(parseGviz(text)); })
+      .then(function(text){ clear(); return checkData(parseGviz(text)); })
       .catch(function(){
+        clear();
         return viaJsonp().then(checkData);
       });
   }
