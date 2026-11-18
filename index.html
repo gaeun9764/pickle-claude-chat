@@ -584,13 +584,13 @@
     return data;
   }
 
-  // script-tag fallback (works even where fetch/CORS is blocked, e.g. file://)
+  // script-tag loader: works even where fetch/CORS is slow or blocked (e.g. file://)
   function viaJsonp(){
     return new Promise(function(resolve, reject){
-      var name = "__gvizCb" + Date.now();
+      var name = "__gvizCb" + Date.now() + Math.floor(Math.random() * 1000);
       var script = document.createElement("script");
       var done = false;
-      var timer = setTimeout(function(){ finish(new Error("응답 시간 초과")); }, 12000);
+      var timer = setTimeout(function(){ finish(new Error("시트 응답이 늦어지고 있어요")); }, 20000);
 
       function cleanup(){
         clearTimeout(timer);
@@ -611,9 +611,9 @@
     });
   }
 
-  function fetchTable(){
+  function viaFetch(){
     var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
-    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 10000) : null;
+    var timer = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 20000) : null;
     function clear(){ if (timer) { clearTimeout(timer); timer = null; } }
 
     return fetch(GVIZ_URL + "&_=" + Date.now(), {
@@ -625,11 +625,30 @@
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.text();
       })
-      .then(function(text){ clear(); return checkData(parseGviz(text)); })
-      .catch(function(){
-        clear();
-        return viaJsonp().then(checkData);
-      });
+      .then(function(text){ clear(); return parseGviz(text); })
+      .catch(function(e){ clear(); throw e; });
+  }
+
+  // ask both ways at once and take whichever answers first
+  function fetchTable(){
+    return new Promise(function(resolve, reject){
+      var settled = false, failures = 0, lastErr = null;
+
+      function ok(data){
+        if (settled) return;
+        try { var d = checkData(data); settled = true; resolve(d); }
+        catch(e){ bad(e); }
+      }
+      function bad(e){
+        if (settled) return;
+        lastErr = e || new Error("알 수 없는 오류");
+        failures++;
+        if (failures >= 2){ settled = true; reject(lastErr); }
+      }
+
+      viaFetch().then(ok, bad);
+      viaJsonp().then(ok, bad);
+    });
   }
 
   function load(showSpin){
@@ -657,11 +676,14 @@
           chatEl.innerHTML = "";
           var box = document.createElement("div");
           box.className = "state";
-          box.innerHTML = '<b>시트에 연결하지 못했어요</b>' +
-            '<span class="small">' + esc(err.message || "네트워크 오류") + '<br>' +
-            '20초 안에 자동으로 다시 시도해요.<br>' +
+          box.innerHTML = '<b>시트에 연결하는 중이에요</b>' +
+            '<span class="small">응답이 조금 늦어지고 있어요. 자동으로 다시 시도합니다.<br>' +
             '<a href="' + SHEET_URL + '" target="_blank" rel="noopener">구글 시트 열기</a></span>';
           chatEl.appendChild(box);
+        }
+        // retry sooner than the poll interval when a load fails
+        if (!retryTimer && !document.hidden){
+          retryTimer = setTimeout(function(){ retryTimer = null; load(false); }, 6000);
         }
       })
       .then(function(){
@@ -728,6 +750,7 @@
   });
 
   var pollTimer = null;
+  var retryTimer = null;
   function startPolling(){
     stopPolling();
     pollTimer = setInterval(function(){
